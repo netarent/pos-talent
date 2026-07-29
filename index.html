@@ -66,7 +66,11 @@
       <p id="loginError" class="hide text-xs text-rose-600 bg-rose-50 rounded-xl px-3 py-2"></p>
       <button id="loginBtn" class="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition shadow-lg shadow-indigo-200">Masuk</button>
     </form>
-    <p class="text-[11px] text-center text-slate-400 mt-6">Gunakan username <b>admin</b> atau <b>kasir</b></p>
+    <!-- Diperbarui untuk menampilkan informasi password -->
+    <p class="text-[11px] text-center text-slate-500 mt-6 leading-relaxed bg-indigo-50/50 p-3 rounded-xl">
+      Username: <b>admin<br/>
+      Username: <b>kasir</b> (pass: talent)
+    </p>
   </div>
 </div>
 
@@ -136,17 +140,17 @@ import { getFirestore, collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 /* ---------------- Firebase ---------------- */
-let API_KEY = "";
-try { API_KEY = (await (await fetch("/api/public/config")).json()).apiKey || ""; } catch(e){}
-
-const fbApp = initializeApp({
-  apiKey: API_KEY,
+const firebaseConfig = {
+  apiKey: "AIzaSyDJdYGj92ILaAaK4FZWf884GTilAraA_Ew",
   authDomain: "pos-talent.firebaseapp.com",
   projectId: "pos-talent",
-  storageBucket: "pos-talent.appspot.com",
+  storageBucket: "pos-talent.firebasestorage.app",
   messagingSenderId: "289664113047",
-  appId: "1:289664113047:web:fe7cde0ae3fe640cea0cd2"
-});
+  appId: "1:289664113047:web:fe7cde0ae3fe640cea0cd2",
+  measurementId: "G-KR0ZCMGBB9"
+};
+
+const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
 const db = getFirestore(fbApp);
 
@@ -187,8 +191,8 @@ const state = {
 const saveSettings = () => localStorage.setItem("dt_settings", JSON.stringify(state.settings));
 
 const MENU = [
-  { id:"dashboard",   label:"Dashboard",           icon:"fa-chart-pie",       admin:false },
-  { id:"pos",         label:"POS / Kasir",         icon:"fa-cash-register",   admin:false },
+  { id:"dashboard",  label:"Dashboard",            icon:"fa-chart-pie",       admin:false },
+  { id:"pos",        label:"POS / Kasir",          icon:"fa-cash-register",   admin:false },
   { id:"transactions",label:"Riwayat Transaksi",   icon:"fa-receipt",         admin:false },
   { id:"products",    label:"Produk",              icon:"fa-burger",          admin:true  },
   { id:"catalog",     label:"Kategori & Variasi",  icon:"fa-layer-group",     admin:true  },
@@ -210,8 +214,11 @@ $("#loginForm").addEventListener("submit", async e=>{
   const p = $("#loginPass").value;
   const err = $("#loginError");
   err.classList.add("hide");
+  
+  // Pemetaan username ke email sesuai permintaan
   const map = { admin:"admin@dapurtalent.com", kasir:"kasir@dapurtalent.com" };
   const email = map[u] || (u.includes("@") ? u : `${u}@dapurtalent.com`);
+  
   $("#loginBtn").disabled = true;
   $("#loginBtn").innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Memproses...';
   try {
@@ -325,6 +332,7 @@ const closeModals = () => $("#modalRoot").innerHTML = "";
 const catName = id => (state.categories.find(c=>c.id===id)||{}).name || "Tanpa Kategori";
 const txDate = t => (t.date || "").slice(0,10);
 const inDay = (d, day) => (d||"").slice(0,10) === day;
+const openShift = () => state.shifts.find(s=>s.status==="open") || null; // Helper fungsi shift
 
 function dayStats(day){
   const tx = state.transactions.filter(t=>inDay(t.date, day));
@@ -361,7 +369,10 @@ function render(){
   const fn = map[state.view] || viewDashboard;
   v.innerHTML = `<div class="fadeIn">${fn()}</div>`;
   if (state.view === "dashboard") drawCharts();
-  if (state.view === "pos") syncCartUI();
+  
+  // Perbarui UI Cart hanya jika shift terbuka (karena elemen tsb mungkin tidak ada jika shift ditutup)
+  if (state.view === "pos" && openShift()) syncCartUI();
+  
   if (state.view === "expenses") drawExpenseChart();
 }
 
@@ -491,7 +502,24 @@ function productThumb(p, cls="w-full h-28"){
     ? `<img src="${p.image}" alt="${esc(p.name)}" class="${cls} object-cover" />`
     : `<div class="${cls} grid place-items-center bg-indigo-50 text-indigo-500 font-extrabold text-2xl">${esc((p.name||"?").slice(0,2).toUpperCase())}</div>`;
 }
+
 function viewPOS(){
+  // Guard Clause: Cek apakah shift kasir terbuka
+  if (!openShift()) {
+    return `
+    <div class="flex-1 min-w-0 flex flex-col items-center justify-center p-4 h-[calc(100vh-60px)]">
+      <div class="w-20 h-20 bg-rose-100 text-rose-600 rounded-3xl flex items-center justify-center text-3xl mb-5 shadow-lg shadow-rose-200 popIn">
+        <i class="fa-solid fa-lock"></i>
+      </div>
+      <h2 class="text-2xl font-extrabold text-slate-800 mb-2">Kasir Ditutup</h2>
+      <p class="text-sm text-slate-500 mb-6 text-center max-w-sm">Anda tidak dapat mengakses menu transaksi karena belum ada shift operasional yang aktif saat ini.</p>
+      <button onclick="state.view='shift'; render(); window.scrollTo(0,0);" class="px-6 py-3.5 rounded-2xl bg-indigo-600 text-white font-semibold text-sm transition shadow-lg shadow-indigo-200 hover:bg-indigo-700 slideUp" style="animation-delay: 0.1s">
+        Buka Shift Sekarang
+      </button>
+    </div>`;
+  }
+
+  // Jika shift terbuka, tampilkan antarmuka POS seperti biasa
   const list = state.products.filter(p=>{
     const okCat = state.posCat==="all" || p.categoryId===state.posCat;
     const okQ = !state.posSearch || (p.name||"").toLowerCase().includes(state.posSearch.toLowerCase());
@@ -575,6 +603,7 @@ function cartHTML(){
     <button data-checkout ${state.cart.length?"":"disabled"} class="w-full py-3.5 rounded-2xl bg-indigo-600 text-white font-semibold text-sm disabled:opacity-40 shadow-lg shadow-indigo-200">Bayar Sekarang</button>
   </div>`;
 }
+
 function syncCartUI(){
   const d = $("#cartDesktop");
   if (d) d.innerHTML = cartHTML();
@@ -1297,7 +1326,6 @@ document.addEventListener("click", async e=>{
 const DAY_ID = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 const fmtDay = d => { const x = new Date(d+"T00:00:00"); return `${DAY_ID[x.getDay()]}, ${x.toLocaleDateString("id-ID",{day:"2-digit",month:"long",year:"numeric"})}`; };
 const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}) : "-";
-const openShift = () => state.shifts.find(s=>s.status==="open") || null;
 
 function shiftRecap(day, from, to){
   const inRange = iso => {
@@ -1526,4 +1554,4 @@ document.addEventListener("click", async e=>{
 });
 </script>
 </body>
-</html>
+</html>FFFFF
